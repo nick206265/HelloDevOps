@@ -142,3 +142,7 @@ chmod +x time.sh
 ```text
 <from '/'>: ~/time.sh
 ```
+
+```text
+<from '/'>: /home/n.kolesnikov/time.sh
+```
