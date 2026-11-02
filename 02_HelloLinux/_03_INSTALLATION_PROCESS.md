@@ -21,7 +21,26 @@
                  │      :80      │
                  └───────────────┘
 
-Apache и Nginx сервера запущены на 2х виртуальных машинах - Debian 12 и CentOS 7 соотвественно, 
+Apache и Nginx сервера запущены на 2х виртуальных машинах - Debian 12 и CentOS 7 соотвественно. Далее с хоста (Ubuntu) мы, обращаясь к nginx, получаем доступ к веб-страницам apache:
+
+                Ubuntu host / browser
+                   |            |
+                   |            |
+              Debian IP     CentOS IP
+                   |            |
+                   v            v
+              Nginx :80     Nginx :80
+              (frontend)    (frontend)
+                   |            |
+                   +-----+------+
+                         |
+                  Both Apache backends
+                         |
+             +-----------+-----------+
+             |                       |
+             v                       v
+       Debian Apache           CentOS Apache
+          :8080                    :8080
 
 ## Установка и настройка VirtualBox на Ubuntu
 
@@ -548,7 +567,7 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful
 sudo systemctl reload nginx
 ```
 
-обнаружим, что коннект идёт к apache напрямую, но не через nginx:
+обнаружим, что коннект идёт к apache напрямую, но не через nginx (502 Bad Gateway):
 ```console
 [centos7user@centos7 ~]$ curl http://127.0.0.1:8080
 <!DOCTYPE html>
@@ -723,3 +742,414 @@ public (active)
 Связка Apache+Nginx на CentOS 7 настроена.
 
 ## Установка и настройка серверов на Debian 12
+```console
+su -
+usermod -aG sudo debian12user
+su debian12user
+```
+
+```console
+debian12user@debian12:~$ groups debian12user
+debian12user : debian12user cdrom floppy sudo audio dip video plugdev users netdev bluetooth lpadmin scanner
+debian12user@debian12:~$ sudo whoami
+root
+```
+
+
+> Debian'у мешал устанавливать пакеты образ установочного диска в /etc/apt/sources.list, пришлось его закомментировать:
+>
+> nano /etc/apt/sources.list
+>
+> \# deb cdrom:[Debian GNU/Linux 12.15.0 _Bookworm_ - Official amd64 DVD Binary-1 with firmware 20260711-14:03]/ bookworm contrib main non-free-firmware
+>
+
+```console
+sudo apt update
+sudo apt upgrade
+```
+
+```console
+debian12user@debian12:~$ ip -4 addr
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000
+    inet 192.168.1.74/24 brd 192.168.1.255 scope global dynamic noprefixroute enp0s3
+       valid_lft 28438sec preferred_lft 28438sec
+```
+
+Ubuntu:
+```console
+ssh-copy-id -i ~/.ssh/id_ed25519.pub debian12user@192.168.1.74
+ssh debian12user@192.168.1.74
+```
+
+```console
+sudo apt install apache2
+```
+
+```console
+debian12user@debian12:~$ grep -R '^Listen'  /etc/apache2/
+/etc/apache2/ports.conf:Listen 80
+```
+
+Меняем на 8080.
+
+```console
+\# If you just change the port or add more ports here, you will likely also
+\# have to change the VirtualHost statement in
+\# /etc/apache2/sites-enabled/000-default.conf
+```
+
+```console                                                                        
+<VirtualHost *:8080>
+        # The ServerName directive sets the request scheme, hostname and port that
+        # the server uses to identify itself. This is used when creating
+        # redirection URLs. In the context of virtual hosts, the ServerName
+        # specifies what hostname must appear in the request's Host: header to
+        # match this virtual host. For the default virtual host (this file) this
+        # value is not decisive as it is used as a last resort host regardless.
+        # However, you must set it for any further virtual host explicitly.
+        #ServerName www.example.com
+
+        ServerAdmin webmaster@localhost
+        DocumentRoot /var/www/html
+
+        # Available loglevels: trace8, ..., trace1, debug, info, notice, warn,
+        # error, crit, alert, emerg.
+        # It is also possible to configure the loglevel for particular
+        # modules, e.g.
+        #LogLevel info ssl:warn
+
+        ErrorLog ${APACHE_LOG_DIR}/error.log
+        CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+        # For most configuration files from conf-available/, which are
+        # enabled or disabled at a global level, it is possible to
+        # include a line for only one particular virtual host. For example the
+        # following line enables the CGI configuration for this host only
+        # after it has been globally disabled with "a2disconf".
+        #Include conf-available/serve-cgi-bin.conf
+</VirtualHost>
+```
+
+Строго говоря это не необходимо в данном случае
+
+
+```console
+debian12user@debian12:~$ sudo apache2ctl configtest
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 127.0.1.1. Set the 'ServerName' directive globally to suppress this message
+Syntax OK
+```
+
+```console
+sudo nano /etc/apache2/apache2.conf
+ServerName debian12apache
+```
+
+```console
+debian12user@debian12:~$ sudo apache2ctl -S
+VirtualHost configuration:
+*:8080                 debian12apache (/etc/apache2/sites-enabled/000-default.conf:1)
+ServerRoot: "/etc/apache2"
+Main DocumentRoot: "/var/www/html"
+Main ErrorLog: "/var/log/apache2/error.log"
+Mutex watchdog-callback: using_defaults
+Mutex default: dir="/var/run/apache2/" mechanism=default 
+PidFile: "/var/run/apache2/apache2.pid"
+Define: DUMP_VHOSTS
+Define: DUMP_RUN_CFG
+User: name="www-data" id=33
+Group: name="www-data" id=33
+```
+
+```console
+debian12user@debian12:~$ sudo systemctl restart apache2
+debian12user@debian12:~$ sudo systemctl status apache2
+● apache2.service - The Apache HTTP Server
+     Loaded: loaded (/lib/systemd/system/apache2.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-10-24 12:42:35 EDT; 9s ago
+       Docs: https://httpd.apache.org/docs/2.4/
+    Process: 34378 ExecStart=/usr/sbin/apachectl start (code=exited, status=0/SUCCESS)
+   Main PID: 34383 (apache2)
+      Tasks: 55 (limit: 2276)
+     Memory: 16.8M
+        CPU: 61ms
+     CGroup: /system.slice/apache2.service
+             ├─34383 /usr/sbin/apache2 -k start
+             ├─34384 /usr/sbin/apache2 -k start
+             └─34385 /usr/sbin/apache2 -k start
+
+Oct 24 12:42:35 debian12 systemd[1]: Starting apache2.service - The Apache HTTP Server...
+Oct 24 12:42:35 debian12 systemd[1]: Started apache2.service - The Apache HTTP Server.
+debian12user@debian12:~$ ss -lntp | grep ':8080'
+LISTEN 0      511                *:8080            *:* 
+debian12user@debian12:~$ curl -I http://127.0.0.1:8080
+HTTP/1.1 200 OK
+Date: Sat, 24 Oct 2026 16:44:25 GMT
+Server: Apache/2.4.68 (Debian)
+Last-Modified: Fri, 23 Oct 2026 09:44:57 GMT
+ETag: "29cd-65e7ed54ba116"
+Accept-Ranges: bytes
+Content-Length: 10701
+Vary: Accept-Encoding
+Content-Type: text/html
+```
+
+Ubuntu:
+
+```console
+~$ curl -I http://192.168.1.74:8080
+HTTP/1.1 200 OK
+Date: Sat, 24 Oct 2026 16:46:04 GMT
+Server: Apache/2.4.68 (Debian)
+Last-Modified: Fri, 23 Oct 2026 09:44:57 GMT
+ETag: "29cd-65e7ed54ba116"
+Accept-Ranges: bytes
+Content-Length: 10701
+Vary: Accept-Encoding
+Content-Type: text/html
+```
+
+Далее установим nginx:
+
+```console
+sudo apt install nginx
+
+sudo systemctl enable nginx --now
+```
+
+проверим:
+```console
+debian12user@debian12:~$ sudo ss -lntp | grep -E ':(8080|80)\b'
+LISTEN 0      511          0.0.0.0:80        0.0.0.0:*    users:(("nginx",pid=34707,fd=5),("nginx",pid=34706,fd=5),("nginx",pid=34704,fd=5))      
+LISTEN 0      511                *:8080            *:*    users:(("apache2",pid=34385,fd=4),("apache2",pid=34384,fd=4),("apache2",pid=34383,fd=4))
+LISTEN 0      511             [::]:80           [::]:*    users:(("nginx",pid=34707,fd=6),("nginx",pid=34706,fd=6),("nginx",pid=34704,fd=6))      
+
+debian12user@debian12:~$ sudo systemctl status nginx
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-10-24 13:01:23 EDT; 8min ago
+       Docs: man:nginx(8)
+   Main PID: 34704 (nginx)
+      Tasks: 3 (limit: 2276)
+     Memory: 2.4M
+        CPU: 58ms
+     CGroup: /system.slice/nginx.service
+             ├─34704 "nginx: master process /usr/sbin/nginx -g daemon on; master_process on;"
+             ├─34706 "nginx: worker process"
+             └─34707 "nginx: worker process"
+
+Oct 24 13:01:23 debian12 systemd[1]: Starting nginx.service - A high performance web server and a reverse proxy server...
+Oct 24 13:01:23 debian12 systemd[1]: Started nginx.service - A high performance web server and a reverse proxy server.
+
+debian12user@debian12:~$ systemctl is-enabled nginx
+enabled
+```
+
+Перед настройкой nginx проверим прямую связь двух apache:
+```console
+[centos7user@centos7 ~]$ curl -I --connect-timeout 5 http://192.168.1.74:8080
+HTTP/1.1 200 OK
+Date: Sat, 24 Oct 2026 17:17:04 GMT
+Server: Apache/2.4.68 (Debian)
+Last-Modified: Fri, 23 Oct 2026 09:44:57 GMT
+ETag: "29cd-65e7ed54ba116"
+Accept-Ranges: bytes
+Content-Length: 10701
+Vary: Accept-Encoding
+Content-Type: text/html
+
+debian12user@debian12:~$ curl -I --connect-timeout 5 http://192.168.1.70:8080
+curl: (7) Failed to connect to 192.168.1.70 port 8080 after 2 ms: Couldn't connect to server
+```
+
+Мешает firewall:
+```console
+[centos7user@centos7 ~]$ sudo firewall-cmd --state
+running
+[centos7user@centos7 ~]$ sudo firewall-cmd --query-port=8080/tcp
+no
+```
+
+Откроем порт 8080 для TCP:
+```console
+[centos7user@centos7 ~]$ sudo firewall-cmd --permanent --add-port=8080/tcp
+success
+[centos7user@centos7 ~]$ sudo firewall-cmd --reload
+success
+```
+
+И проверим:
+```console
+debian12user@debian12:~$ curl -I --connect-timeout 5 http://192.168.1.70:8080
+HTTP/1.1 200 OK
+Date: Sat, 24 Oct 2026 12:36:25 GMT
+Server: Apache/2.4.6 (CentOS)
+Last-Modified: Thu, 08 Oct 2026 13:03:20 GMT
+ETag: "7e-65d53db29ee78"
+Accept-Ranges: bytes
+Content-Length: 126
+Content-Type: text/html; charset=UTF-8
+```
+
+Сохраним оригинальные настройки nginx:
+```console
+sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.backup
+```
+
+По аналогии с nginx на CentOS 7 настроим nginx на Debian12:
+```console
+upstream apache_backends {
+    server 192.168.1.74:8080;
+    server 192.168.1.70:8080;
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    server_name _;
+
+    location / {
+        proxy_pass http://apache_backends;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Проверим кофигурацию/перезагрузим кофигурацию/проверим статус:
+```console
+debian12user@debian12:~$ sudo nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+
+sudo systemctl reload nginx
+sudo systemctl status nginx
+```
+
+Проверим доступ напрямую к обоим апачам:
+```console
+curl http://192.168.1.74:8080/
+curl http://192.168.1.70:8080/
+```
+
+И балансировку через nginx (80й порт по умолчанию для http):
+```console
+for i in {1..6}; do
+    curl -s http://192.168.1.74/
+    echo
+done
+```
+
+В консоли появляются странички apache то с CentOS, то с Debian. 
+
+
+> Было дело: Debian потерял свой IPv4 адрес на интерфейсе enp0s3. Остался только IPv6, и SSH к 192.168.1.74 не подключался с No route to > host.
+> 
+> Реение: Напрямую попросить новый IPv4 адрес у DHCP сервера:
+>
+> sudo dhclient -4 -v enp0s3
+>
+
+
+## Финальная настройка
+
+Осталось настроить балансировку на CentOS 7. Сохраним оригинальные насторйки:
+
+```console
+[centos7user@centos7 ~]$ sudo ls -l /etc/nginx/conf.d/
+total 8
+-rw-r--r--. 1 root root  318 окт 19 09:31 apache.conf
+-rw-r--r--. 1 root root 1072 май 29  2024 default.conf
+
+sudo cp -a /etc/nginx/conf.d/apache.conf /etc/nginx/conf.d/apache.conf.backup
+sudo cp -a /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.backup
+```
+
+> cp -a - удобный способ делать бэкапы файлов (сохраняет права и т.п.)
+
+sudo mv /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.disabled
+
+> по умолчанию читаются конфиги *.conf - поэтому добавление .disabled к имени конфиг отключит
+
+
+Поменяем аналогичным образом конфиг для nginx /etc/nginx/conf.d/apache.conf для распределния запросов на оба apache:
+```console
+upstream apache_backends {
+    server 192.168.1.74:8080;
+    server 192.168.1.70:8080;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location / {
+        proxy_pass http://apache_backends;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+После как обычно проверка конфигурации, перезагрузка её же без прерывания работы сервиса(reload) и проверка статуса: 
+```console
+[centos7user@centos7 ~]$ sudo nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+[centos7user@centos7 ~]$ sudo systemctl reload nginx
+[centos7user@centos7 ~]$ sudo systemctl status nginx
+● nginx.service - nginx - high performance web server
+   Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; vendor preset: disabled)
+   Active: active (running) since Ср 2026-10-28 22:42:40 MSK; 3min 19s ago
+     Docs: http://nginx.org/en/docs/
+  Process: 10139 ExecStop=/bin/sh -c /bin/kill -s TERM $(/bin/cat /var/run/nginx.pid) (code=exited, status=0/SUCCESS)
+  Process: 10175 ExecReload=/bin/sh -c /bin/kill -s HUP $(/bin/cat /var/run/nginx.pid) (code=exited, status=0/SUCCESS)
+  Process: 10144 ExecStart=/usr/sbin/nginx -c /etc/nginx/nginx.conf (code=exited, status=0/SUCCESS)
+ Main PID: 10145 (nginx)
+   CGroup: /system.slice/nginx.service
+           ├─10145 nginx: master process /usr/sbin/nginx -c /etc/nginx/nginx.conf
+           ├─10178 nginx: worker process
+           └─10179 nginx: worker process
+
+окт 28 22:42:40 centos7 systemd[1]: Stopped nginx - high performance web server.
+окт 28 22:42:40 centos7 systemd[1]: Starting nginx - high performance web server...
+окт 28 22:42:40 centos7 systemd[1]: Started nginx - high performance web server.
+окт 28 22:45:56 centos7 systemd[1]: Reloading nginx - high performance web server.
+окт 28 22:45:56 centos7 systemd[1]: Reloaded nginx - high performance web server.
+```
+
+На обеих вирутальнчх машинах:
+```console
+for i in {1..10}; do
+    curl -s http://127.0.0.1/
+    echo
+done
+```
+показыает попеременно странички с CentOS и Debian (но необязательно строго чередуя).
+
+C Ubuntu-хоста в браузере перезагружая страницу видим тот же результат:
+
+CentOS_nginx_CentOS_apache:
+
+<img src="07_1_CentOS_nginx_CentOS_apache.png" width="500">
+
+CentOS_nginx_Debian_apache:
+
+<img src="07_2_CentOS_nginx_Debian_apache.png" width="500">
+
+Debian_nginx_CentOS_apache:
+
+<img src="07_3_Debian_nginx_CentOS_apache.png" width="500">
+
+Debian_nginx_Debian_apache:
+
+<img src="07_4_Debian_nginx_Debian_apache.png" width="500">
