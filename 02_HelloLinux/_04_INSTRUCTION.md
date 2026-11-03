@@ -160,41 +160,97 @@ sudo apt install -y apache2 nginx curl
 
 ### 3.1. Настроить Apache на порту 8080
 
-Добавить порт:
+**1. Проверить текущую настройку порта:**
 
 ```bash
-echo 'Listen 8080' | sudo tee -a /etc/apache2/ports.conf
+grep -n '^[[:space:]]*Listen' /etc/apache2/ports.conf
 ```
 
-Создать конфигурацию сайта:
+Заменить `Listen 80` на:
 
 ```bash
-sudo tee /etc/apache2/sites-available/000-default.conf > /dev/null <<'EOF'
+Listen 8080
+```
+
+
+**2. Настроить VirtualHost на порту 8080:**
+
+Открыть конфигурацию сайта:
+
+```bash
+sudo nano /etc/apache2/sites-available/000-default.conf
+```
+
+Убедиться, что блок VirtualHost использует порт `8080`:
+
+```apache
 <VirtualHost *:8080>
     ServerAdmin webmaster@localhost
     DocumentRoot /var/www/html
     ErrorLog ${APACHE_LOG_DIR}/error.log
     CustomLog ${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
-EOF
 ```
 
-Создать страницу:
+**3. Создать тестовую HTML-страницу:**
 
 ```bash
 echo '<h1>Это Apache на Debian</h1>' | sudo tee /var/www/html/index.html
 ```
 
-Проверить и запустить Apache:
+**4. Проверить конфигурацию Apache:**
 
 ```bash
 sudo apache2ctl configtest
-sudo systemctl enable --now apache2
-sudo systemctl restart apache2
-curl http://127.0.0.1:8080/
 ```
 
-Ожидаемый результат: `Syntax OK` и HTML-страница Debian.
+Ожидаемый результат:
+
+```text
+Syntax OK
+```
+
+**5. Включить Apache при загрузке системы и запустить его:**
+
+```bash
+sudo systemctl enable --now apache2
+```
+
+Если Apache уже запущен, а конфигурация была изменена, применить изменения:
+
+```bash
+sudo systemctl restart apache2
+```
+
+**6. Проверить состояние Apache:**
+
+```bash
+sudo systemctl status apache2
+```
+
+Ожидаемый результат: `active (running)`.
+
+
+**7. Проверить, что Apache слушает порт 8080:**
+
+```bash
+sudo ss -lntp | grep ':8080'
+```
+
+**8. Проверить доступность Apache на порту 8080:**
+
+```bash
+curl http://127.0.0.1:8080/
+
+```
+
+Ожидаемый результат:
+
+```html
+<h1>Это Apache на Debian</h1>
+```
+
+**Важно:** Apache должен слушать порт `8080`, поскольку порт `80` предназначен для Nginx, который будет выступать в роли frontend/reverse proxy.
 
 ### 3.2. Настроить Nginx как балансировщик
 
@@ -245,40 +301,101 @@ sudo systemctl reload nginx
 sudo yum install -y httpd nginx curl
 ```
 
-Если пакет `nginx` не найден, необходимо подключить подходящий репозиторий Nginx. Если Nginx уже установлен, повторная установка не требуется.
+Если пакет `nginx` не найден, необходимо подключить подходящий репозиторий Nginx.
 
 ### 4.1. Настроить Apache на порту 8080
 
-Создать конфигурацию:
+### 4.1. Настроить Apache на порту 8080
+
+**1. Проверить текущую настройку портов Apache:**
 
 ```bash
-sudo tee /etc/httpd/conf.d/apache-8080.conf > /dev/null <<'EOF'
-Listen 8080
-
-<VirtualHost *:8080>
-    DocumentRoot /var/www/html
-    ErrorLog /var/log/httpd/error.log
-    CustomLog /var/log/httpd/access_log combined
-</VirtualHost>
-EOF
+sudo grep -RniE '^[[:space:]]*Listen|<VirtualHost' /etc/httpd/conf /etc/httpd/conf.d/
 ```
 
-Создать страницу:
+```bash
+sudo nano /etc/httpd/conf/httpd.conf
+```
+
+Заменить:
+
+```apache
+Listen 80
+```
+
+на:
+
+```apache
+Listen 8080
+```
+
+Если в файле присутствует блок:
+
+```apache
+<VirtualHost *:80>
+```
+
+изменить его на:
+
+```apache
+<VirtualHost *:8080>
+```
+
+Если такого блока нет, создавать его необязательно: Apache может обслуживать запросы через стандартную конфигурацию без явно заданного VirtualHost.
+
+**Важно:** не должно оставаться других активных директив `Listen 80`, конфликтующих с новой конфигурацией. Также не добавляйте повторный `Listen 8080`, если он уже определён в другом загружаемом файле.
+
+
+**2. Создать html страницу:**
+
 
 ```bash
 echo '<h1>Это Apache на CentOS</h1>' | sudo tee /var/www/html/index.html
 ```
 
-Проверить и запустить Apache:
+**3. Проверить конфигурацию Apache:**
 
 ```bash
 sudo apachectl configtest
-sudo systemctl enable --now httpd
+```
+
+Ожидаемый результат:
+
+```text
+Syntax OK
+```
+
+**4. Перезапустить Apache:**
+
+```bash
 sudo systemctl restart httpd
+```
+
+**5. Проверить состояние Apache:**
+
+```bash
+sudo systemctl status httpd
+```
+
+Ожидаемый результат:
+
+```text
+active (running)
+```
+
+**6. Проверить, что Apache слушает порт 8080:**
+
+```bash
+sudo ss -lntp | grep ':8080'
+```
+
+**7. Проверить доступность Apache:**
+
+```bash
 curl http://127.0.0.1:8080/
 ```
 
-Ожидаемый результат: `Syntax OK` и HTML-страница CentOS.
+**Итог:** Apache на CentOS 7 принимает HTTP-запросы на порту `8080`. Порт `80` остаётся для Nginx, который будет выступать в роли frontend/reverse proxy.
 
 ## 5. CentOS 7: SELinux и firewall
 
@@ -304,6 +421,17 @@ sudo semanage port -l | grep http_port_t
 ```
 
 Если порт `8080` уже принадлежит другому SELinux-типу, не менять его вслепую: сначала проверить существующую политику.
+
+```bash
+[centos7user@centos7 ~]$ sudo semanage port -l | grep 8080
+http_cache_port_t              tcp      8080, 8118, 8123, 10001-1001
+```
+
+тогда переназначим SELinux метку нашему порту на http_port_t (старую удалим, чтобы не допускать неясностей и конфликтов):
+```bash
+sudo semanage port -m -t http_port_t -p tcp 8080
+sudo semanage port -d -t http_cache_port_t -p tcp 8080
+```
 
 Разрешить Nginx подключаться к backend-серверам:
 
@@ -406,8 +534,6 @@ curl -sS --connect-timeout 5 http://DEBIAN_IP:8080/
 curl -sS --connect-timeout 5 http://CENTOS_IP:8080/
 ```
 
-Заменить заполнители IP-адресами.
-
 Ожидается, что первый запрос покажет страницу Debian, а второй — страницу CentOS. Если запрос не проходит, проверить IP-адреса, маршрутизацию, firewall и SELinux.
 
 ## 8. Проверка балансировки через оба Nginx
@@ -447,6 +573,22 @@ done
 - `http://CENTOS_IP/` — Nginx на CentOS.
 
 На каждой странице должны появляться ответы обоих Apache при обновлении страницы.
+
+<details>
+<summary>Дополнительно: кириллица на странице Debian</summary>
+Чтобы починить кракозябры на Debian можно добавить в html-заголовок UTF-8 charset по умолчанию:
+
+```bash
+debian12user@debian12:~$ sudo cat /etc/apache2/conf-available/charset.conf
+# Read the documentation before enabling AddDefaultCharset.
+# In general, it is only a good idea if you know that all your files
+# have this encoding. It will override any encoding given in the files
+# in meta http-equiv or xml encoding tags.
+
+AddDefaultCharset UTF-8
+```
+
+</details>
 
 ## 10. Ключевые моменты
 
